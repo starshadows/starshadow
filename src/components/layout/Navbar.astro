@@ -72,7 +72,7 @@ const links: NavBarLink[] = resolveNavMenuLinks();
 const logoConfig = siteConfig.navbar.logo;
 const logoAlt = logoConfig?.alt || siteConfig.title;
 const logoIsImage = logoConfig?.type === "image" || logoConfig?.type === "url";
-const logoBaseClass = "navbar-logo h-7 w-7 mb-1 mr-2 object-contain";
+const logoBaseClass = "navbar-logo h-7 w-7 mr-2 object-contain";
 
 const logoFiles = import.meta.glob<ImageMetadata>(
 	"../../**/*.{png,jpg,jpeg,webp,avif,gif,svg}",
@@ -124,6 +124,14 @@ const logoVariants = await Promise.all(
 );
 ---
 <div id="navbar" class="z-50" style={`--navbar-glass-blur: ${navbarBlur}px;`} data-transparent-mode={navbarTransparentMode} data-is-home={isHomePageCheck} data-full-width={navbarWidthFull}>
+    <svg aria-hidden="true" width="0" height="0" class="absolute pointer-events-none">
+        <defs>
+            <filter id="elysia-logo-color" color-interpolation-filters="sRGB">
+                <feFlood style="flood-color: var(--elysia-brand-color)" />
+                <feComposite in2="SourceAlpha" operator="in" />
+            </filter>
+        </defs>
+    </svg>
     <script is:inline define:vars={{
       bannerTMode: backgroundWallpaper.banner?.navbar?.transparentMode || "semi",
       bannerBlur: backgroundWallpaper.banner?.navbar?.blur ?? 20,
@@ -162,7 +170,7 @@ const logoVariants = await Promise.all(
         <div class="mx-auto h-full w-full max-w-(--page-width) grid grid-cols-[auto_minmax(0,1fr)_auto] items-center">
             <a href={url('/')} class="btn-plain scale-animation rounded-lg h-13 px-3 md:px-5 font-bold active:scale-95">
                 <div class:list={[
-                    "flex flex-row items-center text-md",
+                    "navbar-brand flex flex-row items-center text-md",
                     siteConfig.navbar.followTheme ? "text-(--primary)" : "dark:text-white text-black"
                 ]} style="font-family: var(--font-navbar-title, inherit)">
                                     {logoConfig?.type === "icon" ? (

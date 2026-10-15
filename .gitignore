@@ -1,6 +1,10 @@
 # build output
 dist/
 
+# local preview screenshots and browser sessions
+output/
+.playwright-cli/
+
 # generated vndb covers
 public/vndb-covers/
 

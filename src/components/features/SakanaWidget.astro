@@ -1,0 +1,508 @@
+---
+import { url } from "@/utils/url-utils";
+
+const enabled = import.meta.env.PUBLIC_SAKANA_WIDGET_ENABLED !== "false";
+
+const sakanaCssUrl = url("/vendor/sakana/sakana.min.css");
+const sakanaScriptUrl = url("/vendor/sakana/sakana.min.js");
+const characterImageUrl = url("/sakana/starshadow.webp");
+---
+
+{enabled && (
+	<>
+		<link rel="stylesheet" href={sakanaCssUrl} />
+		<script is:inline src={sakanaScriptUrl} defer></script>
+
+		<style is:global>
+			#sakana-widget.sakana-float {
+				position: fixed;
+				right: 32px;
+				bottom: 36px;
+				width: var(--sakana-widget-size, 190px);
+				height: var(--sakana-widget-size, 190px);
+				z-index: 9999;
+				pointer-events: none;
+			}
+
+			#sakana-widget .sakana-widget-img {
+				background-size: contain;
+			}
+
+			#sakana-widget .sakana-widget-canvas {
+				filter: drop-shadow(0 0.15rem 0.45rem rgba(14, 165, 233, 0.18));
+			}
+
+			#sakana-widget .sakana-widget-ctrl {
+				width: 136px;
+				height: 34px;
+				gap: 2px;
+				justify-content: center;
+				padding: 3px 4px;
+				border: 1px solid var(--line-color);
+				border-radius: 0.75rem;
+				background: color-mix(in oklch, var(--card-bg) 90%, transparent);
+				box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.14);
+				backdrop-filter: blur(12px);
+				transform: translateY(0.35rem);
+			}
+
+			#sakana-widget .sakana-widget-ctrl-item {
+				width: 30px;
+				height: 28px;
+				border-radius: 0.55rem;
+				color: var(--btn-content);
+				transition:
+					color 150ms ease,
+					background-color 150ms ease,
+					transform 150ms ease;
+			}
+
+			#sakana-widget .sakana-widget-ctrl-item:hover {
+				color: var(--primary);
+				background: var(--btn-card-bg-hover);
+			}
+
+			#sakana-widget .sakana-widget-ctrl-item:active {
+				transform: scale(0.92);
+			}
+
+			#sakana-widget .sakana-widget-icon {
+				width: 1.15rem;
+				height: 1.15rem;
+			}
+
+			#sakana-repo-confirm {
+				position: fixed;
+				right: 32px;
+				bottom: 88px;
+				z-index: 10000;
+				max-width: min(18rem, calc(100vw - 2rem));
+				color: black;
+			}
+
+			.dark #sakana-repo-confirm {
+				color: white;
+			}
+
+			#sakana-repo-confirm .sakana-confirm-card {
+				padding: 1rem;
+				border: 1px solid var(--line-color);
+				border-radius: var(--radius-large);
+				background: color-mix(in oklch, var(--card-bg) 94%, transparent);
+				box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.16);
+				backdrop-filter: blur(16px);
+			}
+
+			#sakana-repo-confirm .sakana-confirm-title {
+				font-size: 0.95rem;
+				font-weight: 700;
+				margin-bottom: 0.35rem;
+			}
+
+			#sakana-repo-confirm .sakana-confirm-text {
+				font-size: 0.82rem;
+				line-height: 1.6;
+				color: color-mix(in oklch, currentColor 70%, transparent);
+				margin-bottom: 0.85rem;
+			}
+
+			#sakana-repo-confirm .sakana-confirm-actions {
+				display: flex;
+				justify-content: flex-end;
+				gap: 0.5rem;
+			}
+
+			#sakana-repo-confirm button {
+				min-width: 4rem;
+				height: 2rem;
+				border: 0;
+				border-radius: 0.6rem;
+				font-size: 0.82rem;
+				font-weight: 700;
+				cursor: pointer;
+				transition:
+					background-color 150ms ease,
+					color 150ms ease,
+					transform 150ms ease;
+			}
+
+			#sakana-repo-confirm button:active {
+				transform: scale(0.95);
+			}
+
+			#sakana-repo-confirm [data-action="cancel"] {
+				color: var(--btn-content);
+				background: var(--btn-card-bg-hover);
+			}
+
+			#sakana-repo-confirm [data-action="open"] {
+				color: white;
+				background: var(--primary);
+			}
+
+			@media (max-width: 768px) {
+				#sakana-widget.sakana-float {
+					right: 0.75rem;
+					bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+				}
+
+				#sakana-widget .sakana-widget-ctrl {
+					width: 112px;
+					height: 29px;
+					padding: 2px 3px;
+					border-radius: 0.6rem;
+					transform: translateY(0.2rem);
+				}
+
+				#sakana-widget .sakana-widget-ctrl-item {
+					width: 24px;
+					height: 24px;
+				}
+
+				#sakana-widget .sakana-widget-icon {
+					width: 0.9rem;
+					height: 0.9rem;
+				}
+
+				#sakana-repo-confirm {
+					right: 0.75rem;
+					bottom: calc(env(safe-area-inset-bottom, 0px) + 5rem);
+					max-width: calc(100vw - 1.5rem);
+				}
+			}
+		</style>
+
+		<script is:inline define:vars={{ characterImageUrl }}>
+			(() => {
+				const mountId = "sakana-widget";
+				const mobileStorageKey = "sakana-mobile-enabled";
+				const desktopQuery = "(min-width: 769px)";
+				const originalRepositoryUrl =
+					"https://github.com/dsrkafuu/sakana-widget";
+				const uiText = {
+					confirmTitle: "\u6253\u5f00\u539f\u4f5c\u8005\u4ed3\u5e93\uff1f",
+					confirmBody:
+						"\u5c06\u8df3\u8f6c\u5230 Sakana Widget \u539f\u4f5c\u8005\u7684 GitHub \u4ed3\u5e93\u3002",
+					cancel: "\u53d6\u6d88",
+					open: "\u6253\u5f00",
+					switchCharacter: "\u5207\u6362\u89d2\u8272\uff08\u5f85\u6dfb\u52a0\uff09",
+					openRepository: "\u6253\u5f00\u539f\u4f5c\u8005\u4ed3\u5e93",
+					autoMode: "\u81ea\u52a8\u8df3\u52a8",
+					close: "\u4e34\u65f6\u5173\u95ed",
+				};
+				const initialState = {
+					i: 0.08,
+					s: 0.1,
+					d: 0.988,
+					r: 0,
+					y: 0,
+					t: 0,
+					w: 0,
+				};
+				const customCharacters = [
+					{
+						name: "starshadow",
+						image: characterImageUrl,
+						initialState,
+					},
+				];
+
+				const getWidgetClass = () => window.SakanaWidget;
+				const isDesktop = () => window.matchMedia(desktopQuery).matches;
+				const isMobile = () => !isDesktop();
+				const getMode = () => (isDesktop() ? "desktop" : "mobile");
+				const getWidgetSize = () => (isDesktop() ? 190 : 136);
+
+				const getMobileEnabled = () => {
+					try {
+						return localStorage.getItem(mobileStorageKey) !== "false";
+					} catch {
+						return false;
+					}
+				};
+
+				const setMobileEnabled = (enabled) => {
+					try {
+						localStorage.setItem(mobileStorageKey, String(enabled));
+					} catch {
+						// Ignore private-mode storage failures.
+					}
+					document.dispatchEvent(
+						new CustomEvent("sakana-mobile-state", {
+							detail: { enabled },
+						}),
+					);
+				};
+
+				const getStrokeColor = () => {
+					const hue =
+						getComputedStyle(document.documentElement)
+							.getPropertyValue("--hue")
+							.trim() || "220";
+					const lightness = document.documentElement.classList.contains("dark")
+						? 76
+						: 82;
+					return `hsla(${hue}, 92%, ${lightness}%, 0.9)`;
+				};
+
+				const unmountWidget = () => {
+					try {
+						window.__sakanaWidgetInstance?.unmount?.();
+					} catch {
+						document.getElementById(mountId)?.remove();
+					}
+					window.__sakanaWidgetInstance = null;
+					window.__sakanaWidgetMode = null;
+					document.getElementById(mountId)?.remove();
+				};
+
+				const closeRepositoryConfirm = () => {
+					document.getElementById("sakana-repo-confirm")?.remove();
+				};
+
+				const showRepositoryConfirm = () => {
+					closeRepositoryConfirm();
+
+					const dialog = document.createElement("div");
+					dialog.id = "sakana-repo-confirm";
+
+					const card = document.createElement("div");
+					card.className = "sakana-confirm-card";
+					card.setAttribute("role", "dialog");
+					card.setAttribute("aria-modal", "false");
+					card.setAttribute("aria-labelledby", "sakana-confirm-title");
+
+					const title = document.createElement("div");
+					title.id = "sakana-confirm-title";
+					title.className = "sakana-confirm-title";
+					title.textContent = uiText.confirmTitle;
+
+					const body = document.createElement("div");
+					body.className = "sakana-confirm-text";
+					body.textContent = uiText.confirmBody;
+
+					const actions = document.createElement("div");
+					actions.className = "sakana-confirm-actions";
+
+					const cancelButton = document.createElement("button");
+					cancelButton.type = "button";
+					cancelButton.dataset.action = "cancel";
+					cancelButton.textContent = uiText.cancel;
+
+					const openButton = document.createElement("button");
+					openButton.type = "button";
+					openButton.dataset.action = "open";
+					openButton.textContent = uiText.open;
+
+					actions.append(cancelButton, openButton);
+					card.append(title, body, actions);
+					dialog.append(card);
+
+					dialog.addEventListener("click", (event) => {
+						const target = event.target;
+						if (!(target instanceof HTMLElement)) return;
+						const action = target.dataset.action;
+						if (action === "cancel") {
+							closeRepositoryConfirm();
+						}
+						if (action === "open") {
+							window.open(originalRepositoryUrl, "_blank", "noopener,noreferrer");
+							closeRepositoryConfirm();
+						}
+					});
+
+					document.addEventListener(
+						"keydown",
+						(event) => {
+							if (event.key === "Escape") closeRepositoryConfirm();
+						},
+						{ once: true },
+					);
+
+					document.body.appendChild(dialog);
+				};
+
+				const registerCharacters = (SakanaWidget) => {
+					SakanaWidget.getCharacters();
+					for (const character of customCharacters) {
+						SakanaWidget.registerCharacter(character.name, character);
+					}
+
+					const fallbackCharacter = customCharacters[0];
+					for (const reservedName of ["chisato", "takina"]) {
+						SakanaWidget.registerCharacter(reservedName, fallbackCharacter);
+					}
+				};
+
+				const switchToNextCustomCharacter = () => {
+					const widget = window.__sakanaWidgetInstance;
+					if (!widget || customCharacters.length < 2) return;
+
+					const index = customCharacters.findIndex(
+						(character) => character.name === widget._char,
+					);
+					const nextCharacter =
+						customCharacters[(index + 1) % customCharacters.length];
+					widget.setCharacter(nextCharacter.name);
+				};
+
+				const polishControls = () => {
+					const controls = document.querySelector(
+						`#${mountId} .sakana-widget-ctrl`,
+					);
+					if (!(controls instanceof HTMLElement)) return;
+
+					const [person, magic, repo, close] = Array.from(controls.children);
+					if (!person || !magic || !repo || !close) return;
+
+					controls.append(person, repo, magic, close);
+
+					person.setAttribute("aria-label", uiText.switchCharacter);
+					person.setAttribute("title", uiText.switchCharacter);
+					repo.setAttribute("aria-label", uiText.openRepository);
+					repo.setAttribute("title", uiText.openRepository);
+					magic.setAttribute("aria-label", uiText.autoMode);
+					magic.setAttribute("title", uiText.autoMode);
+					close.setAttribute("aria-label", uiText.close);
+					close.setAttribute("title", uiText.close);
+
+					person.addEventListener(
+						"click",
+						(event) => {
+							event.preventDefault();
+							event.stopImmediatePropagation();
+							switchToNextCustomCharacter();
+						},
+						{ capture: true },
+					);
+
+					if (repo instanceof HTMLAnchorElement) {
+						repo.href = originalRepositoryUrl;
+						repo.target = "_blank";
+						repo.rel = "noopener noreferrer";
+						repo.addEventListener("click", (event) => {
+							event.preventDefault();
+							showRepositoryConfirm();
+						});
+					}
+
+					close.addEventListener("click", () => {
+						if (isMobile()) {
+							setMobileEnabled(false);
+						} else {
+							window.__sakanaWidgetDismissed = true;
+						}
+						closeRepositoryConfirm();
+						window.setTimeout(unmountWidget, 0);
+					});
+				};
+
+				const shouldMount = () => {
+					if (!document.body) return false;
+					if (isDesktop()) return !window.__sakanaWidgetDismissed;
+					return getMobileEnabled();
+				};
+
+				const mountWidget = () => {
+					if (!shouldMount()) {
+						unmountWidget();
+						if (isMobile()) setMobileEnabled(false);
+						return;
+					}
+
+					const SakanaWidget = getWidgetClass();
+					if (!SakanaWidget) {
+						window.setTimeout(mountWidget, 100);
+						return;
+					}
+
+					const mode = getMode();
+					if (
+						window.__sakanaWidgetInstance &&
+						window.__sakanaWidgetMode === mode &&
+						document.getElementById(mountId)
+					) {
+						return;
+					}
+
+					unmountWidget();
+					registerCharacters(SakanaWidget);
+
+					const widgetSize = getWidgetSize();
+					const mountPoint = document.createElement("div");
+					mountPoint.id = mountId;
+					mountPoint.className = "sakana-float";
+					mountPoint.style.setProperty("--sakana-widget-size", `${widgetSize}px`);
+					document.body.appendChild(mountPoint);
+
+					try {
+						window.__sakanaWidgetInstance = new SakanaWidget({
+							size: widgetSize,
+							character: customCharacters[0].name,
+							controls: true,
+							rod: true,
+							draggable: true,
+							stroke: {
+								color: getStrokeColor(),
+								width: isDesktop() ? 7 : 5,
+							},
+							title: false,
+						}).mount(`#${mountId}`);
+						window.__sakanaWidgetMode = mode;
+						polishControls();
+					} catch (error) {
+						mountPoint.remove();
+						window.__sakanaWidgetInstance = null;
+						window.__sakanaWidgetMode = null;
+						console.warn("Failed to mount Sakana widget.", error);
+					}
+				};
+
+				const scheduleMount = () => window.requestAnimationFrame(mountWidget);
+
+				if (!window.__sakanaWidgetResizeBound) {
+					window.__sakanaWidgetResizeBound = true;
+					const mediaQuery = window.matchMedia(desktopQuery);
+					mediaQuery.addEventListener("change", scheduleMount);
+				}
+
+				if (!window.__sakanaWidgetMobileToggleBound) {
+					window.__sakanaWidgetMobileToggleBound = true;
+					document.addEventListener("sakana-mobile-toggle", (event) => {
+						const enabled = Boolean(event.detail?.enabled);
+						setMobileEnabled(enabled);
+						window.__sakanaWidgetDismissed = false;
+						scheduleMount();
+					});
+				}
+
+				const setupSwup = () => {
+					if (window.__sakanaWidgetSwupHooked || !window.swup?.hooks) return;
+					window.__sakanaWidgetSwupHooked = true;
+					window.swup.hooks.on("page:view", scheduleMount);
+				};
+
+				if (window.swup?.hooks) {
+					setupSwup();
+				} else if (!window.__sakanaWidgetSwupSetupPending) {
+					window.__sakanaWidgetSwupSetupPending = true;
+					document.addEventListener("swup:enable", setupSwup, { once: true });
+				}
+
+				document.dispatchEvent(
+					new CustomEvent("sakana-mobile-state", {
+						detail: { enabled: getMobileEnabled() },
+					}),
+				);
+
+				if (document.readyState === "loading") {
+					document.addEventListener("DOMContentLoaded", scheduleMount, {
+						once: true,
+					});
+				} else {
+					scheduleMount();
+				}
+			})();
+		</script>
+	</>
+)}

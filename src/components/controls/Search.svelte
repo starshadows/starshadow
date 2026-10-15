@@ -6,7 +6,7 @@ import { onMount } from "svelte";
 import Icon from "@/components/common/Icon.svelte";
 import type { SearchResult } from "@/global";
 import { FLOATING_PANEL_CLOSE_EVENT } from "@/utils/floating-panel-utils";
-import { url as formatUrl, getSearchUrl } from "@/utils/url-utils";
+import { getSearchUrl } from "@/utils/url-utils";
 
 // --- State ---
 let keywordDesktop = "";
@@ -17,20 +17,8 @@ let initialized = false;
 let debounceTimer: NodeJS.Timeout;
 let searchRequestId = 0;
 
-// --- Mocks for Dev Mode ---
-const fakeResult: SearchResult[] = [
-	{
-		url: formatUrl("/"),
-		meta: { title: "This Is a Fake Search Result" },
-		excerpt:
-			"Because Pagefind cannot work in the <mark>dev</mark> environment.",
-	},
-	{
-		url: formatUrl("/"),
-		meta: { title: "If You Want to Test the Search" },
-		excerpt: "Try running <mark>npm build && npm preview</mark> instead.",
-	},
-];
+// 开发预览不提供演示搜索结果，正式站点仍使用 Pagefind。
+const fakeResult: SearchResult[] = [];
 
 // --- UI Logic ---
 // pagefind.js 是按需加载的（见 Navbar.astro），搜索 UI 一被碰到就触发。
