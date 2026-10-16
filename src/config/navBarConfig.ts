@@ -59,9 +59,6 @@ const getDynamicNavBarConfig = (): NavBarConfig => {
 			// 动态
 			LinkPresets.Dynamic,
 
-			// 项目
-			LinkPresets.Projects,
-
 			// 相册
 			LinkPresets.Gallery,
 
