@@ -1,188 +1,220 @@
 ---
-title: 用 Cloud Mail + Resend 搭建域名邮箱：收信、发信和 Gmail 代发
+title: 基于 Cloud Mail、Resend 与 Gmail 搭建域名邮箱
 published: 2026-05-13
-description: 使用 Cloud Mail、Resend 和 Gmail 搭建自己的域名邮箱，实现收信、发信和 Gmail 代发。
+description: 低成本搭建域名邮箱。
 image: /assets/posts/domain-email-cloud-mail-resend-gmail/cover.webp
 tags:
-- 域名邮箱
-- Cloudflare
-- Resend
-- Gmail
-category: 折腾记录
+  - 域名邮箱
+  - Cloudflare
+  - Resend
+  - Gmail
+  - SMTP
+  - 邮件安全
+category: 网络折腾
 draft: false
 lang: ''
 slug: domain-email-cloud-mail-resend-gmail
 date: '2026-05-13'
 ---
 
-域名邮箱最实用的地方，是把不同网站、不同服务的注册邮箱隔离开来。比如给购物、订阅、测试项目、临时服务分别准备不同的邮箱地址，后续如果某个地址开始收到垃圾邮件，也更容易判断泄露来源并停用。
+在数字化生活中，拥有一个以自己域名为后缀的专属邮箱（如 `admin@yourdomain.com`）：
+- 可以为不同服务定制独立邮箱别名
+- 可以临时注册一些你不信任的网站
+> [!TIP]
+> 域名邮箱不是万能的，很多网站都只接受主流邮箱注册，域名邮箱不能替代主流邮箱。
 
-这篇记录的是我目前使用的一套轻量方案：用 Cloud Mail 搭建邮箱面板和收信逻辑，用 Resend 负责 SMTP 发信，再把 Gmail 作为可选的收发客户端。它不适合替代企业邮箱，但很适合作为个人域名邮箱、注册别名邮箱、项目测试邮箱来用。
+传统的域名邮箱方案往往伴随着极高的实施成本：
+- **自建邮件服务器（Postfix + Dovecot 等）**：维护成本较高；
+- **商业企业邮箱（Google Workspace、Fastmail 等）**：功能完备，但按人头/按月计费，对多域名、轻量自用或测试场景而言开销太大。
 
-> [!NOTE]
-> 批量管理账号邮箱别名时，仍然要遵守对应网站的服务条款。有些平台会限制自定义域名邮箱，特别是免费域名、低价域名、新注册域名，可能会触发风控或直接不支持。
+本文介绍一套**无服务器轻量化方案**：
+> 利用 **Cloudflare Email Routing + Cloud Mail** 负责无服务器收信与别名管理，由现代邮件交付平台 **Resend** 提供高信誉 SMTP 发信通道，最后接入 **Gmail** 实现无感代发。
 
-## 整体方案
+---
 
-这套方案可以拆成两条链路：
 
-- 收信：外部服务发邮件到你的域名邮箱，Cloudflare / Cloud Mail 接收后，转发到 Cloud Mail 面板、Telegram 或 Gmail。
-- 发信：Cloud Mail 或 Gmail 通过 Resend 的 SMTP 服务，以你的域名邮箱身份发出邮件。
+
+### 准备清单与依赖工具
+
+1. **已接入 Cloudflare 的域名**：托管 DNS 并承载 Email Routing；
+2. **GitHub 账号**：用于在 Cloudflare Pages/Workers 上部署开源面板；
+3. **[Cloud Mail](https://github.com/maillab/cloud-mail)**：轻量漂亮的无服务器邮件管理系统（基于 Svelte + Cloudflare D1/KV）；
+4. **[Resend](https://resend.com/) 账号**：现代开发者发信平台（免费计划提供每月 3000 封发信额度，完全满足个人与轻量需求）；
+5. **日常使用的 Gmail 账号**：充当主收发客户端。
 
 ![域名邮箱收发架构图](/assets/posts/domain-email-cloud-mail-resend-gmail/mail-flow-architecture.svg)
 
-需要准备：
+---
 
-- 一个已经接入 Cloudflare 的域名
-- 一个 Cloudflare 账号
-- 一个 GitHub 账号，用来部署 Cloud Mail
-- 一个 Resend 账号，用来发信
-- 一个 Gmail 账号，可选，用来当日常收发客户端
+## 1. 收信基础设施：部署 Cloud Mail 面板
 
-Cloud Mail 项目地址：<a href="https://github.com/maillab/cloud-mail" target="_blank" rel="noopener noreferrer">maillab/cloud-mail</a>
+Cloud Mail 利用 Cloudflare 的边缘计算与轻量数据库能力，将邮件管理界面直接跑在 Cloudflare Workers/Pages 上，免去自建服务器的麻烦。
 
-Cloud Mail 官方部署文档：<a href="https://doc.skymail.ink/guide/dashboard.html" target="_blank" rel="noopener noreferrer">界面部署</a>
+### 核心部署流程简析
 
-## 先完成 Cloud Mail 收信
+1. **Fork 代码库**：访问 [maillab/cloud-mail](https://github.com/maillab/cloud-mail)，将其 Fork 至自己的 GitHub 仓库；
+2. **在 Cloudflare 创建项目**：
+   - 登录 Cloudflare Dashboard -> **Compute (Workers & Pages)** -> **Create application** -> **Pages** -> 连接 GitHub 仓库；
+   - 框架预设选择自动，按官方 [部署指南](https://doc.skymail.ink/guide/dashboard.html) 绑定 D1 数据库实例与 KV 命名空间；
+3. **初始化与路由关联**：
+   - 绑定自己的访问域名，访问面板完成管理员账号注册与数据库初始化；
+   - 在 Cloudflare 域名控制台的 **Email Routing（邮件路由）** 中启用服务，系统会自动下发对应的 MX 解析与 SPF 基础记录，并将入站规则交由 Cloud Mail 的 Worker 处理。
 
-Cloud Mail 的基础部署建议直接按官方文档走。核心步骤是：
+至此，发往该域名的入站邮件已经能被 Cloud Mail 完整接收并存储在面板中。
 
-1. Fork 或克隆 Cloud Mail 项目到自己的 GitHub。
-2. 在 Cloudflare Workers & Pages 里从 GitHub 导入项目。
-3. 按文档配置环境变量、D1、KV 和自定义域。
-4. 初始化数据库，注册管理员账号并登录 Cloud Mail 面板。
-5. 在 Cloudflare 邮件路由里配置目标地址或 Workers，让邮件能进入 Cloud Mail。
+---
 
-做到这里，通常已经可以完成收信。但如果想从 Cloud Mail 或 Gmail 发出域名邮箱邮件，还需要继续配置 Resend。
+## 2. 发信基础设施：配置 Resend 与邮件认证三大支柱
 
-## 配置 Resend 发信
+Cloudflare Email Routing 官方仅提供收信转发能力，并不提供出站 SMTP 服务器。为了以自己的域名对外发送邮件，我们需要接入 Resend。
 
-打开 <a href="https://resend.com/" target="_blank" rel="noopener noreferrer">Resend</a> 官网，注册并登录账号，然后进入 `Domains` 页面，点击 `Add domain` 添加自己的域名。
+### 步骤 1：添加并验证域名
+
+1. 登录 Resend 后台，在左侧导航进入 **Domains**，点击 **Add domain** 输入自己的根域名：
 
 ![Resend 的 Domains 页面](/assets/posts/domain-email-cloud-mail-resend-gmail/step-01-resend-domain.png)
 
-Resend 会要求你添加 DNS 记录来验证域名。按页面提示跳转到 Cloudflare，添加对应解析记录，等待状态变成 `Verified`。
+2. 点击跳转到 Cloudflare 自动一键添加 DNS 记录，或手动添加 Resend 提供的三条记录：
+   - 用于发信来源认证的 **SPF** TXT 记录；
+   - 用于内容防篡改数字签名的 **DKIM** CNAME 记录；
+   - 邮件回执 MX 记录。
+3. 等待状态刷新为 **Verified**。
 
-> [!NOTE]
-> 我这里直接添加主域名。如果你更在意发信信誉隔离，也可以用类似 `mail.example.com` 这样的子域名。
+### 步骤 2：加固 DMARC 防护记录
 
-Resend 自动添加的 DNS 记录通常会覆盖 SPF / DKIM 等发信认证，但不会替你补主域名的 DMARC。为了防止别人伪造你的域名发信，建议在 Cloudflare DNS 里手动加一条：
+Resend 默认不会自动生成主域名的 DMARC 记录。为了防止黑客仿冒你的域名实施钓鱼，必须在 Cloudflare DNS 中显式注入一条 DMARC 策略：
 
-| 类型 | 名称 | 内容 | 代理状态 | TTL |
-| --- | --- | --- | --- | --- |
-| TXT | `_dmarc` | `"v=DMARC1;p=reject"` | 仅 DNS | 自动 |
+| 记录类型 | 名称 (Name) | 内容 (Content) | 代理状态 | TTL |
+| :--- | :--- | :--- | :--- | :--- |
+| **TXT** | `_dmarc` | `"v=DMARC1; p=reject;"` | 仅 DNS (灰云) | Auto |
 
-`p=reject` 是比较严格的策略：当邮件没有通过 SPF / DKIM 对齐时，收件方可以直接拒收。对于刚开始测试的新域名，这样比较干净；如果你的域名之前已经接入过其它发信服务，要先确认所有合法发信服务的 SPF / DKIM 都配置正确，再切到 `reject`。
+---
+```mermaid
+flowchart TB
+    subgraph EmailAuth["现代邮件防伪三大支柱"]
+        direction TB
 
-域名验证完成后，进入 `API keys` 页面，创建一个新的 API Key。这个 Key 只会完整显示一次，一定要立刻保存好。
+        SPF["1. SPF：发件 IP 授权"]
+        DKIM["2. DKIM：数字签名验证"]
+        DMARC["3. DMARC：域名对齐与策略选择"]
+
+        SPF --> DMARC
+        DKIM --> DMARC
+    end
+
+    style SPF fill:#e3f2fd,stroke:#2196f3,color:#1565c0
+    style DKIM fill:#e8f5e9,stroke:#4caf50,color:#2e7d32
+    style DMARC fill:#fff3e0,stroke:#ff9800,color:#e65100
+```
+
+> [!TIP]
+> `p=reject` 是最为严格的策略：一旦收信方发现邮件既无有效 SPF 也无有效 DKIM 签名，将直接拒绝接收。
+
+### 步骤 3：获取 API Key 并绑定至 Cloud Mail
+
+1. 在 Resend 后台进入 **API Keys** 页面，创建名为 `CloudMail-Sender` 的 Key 并立刻复制保存：
 
 ![创建 Resend API Key](/assets/posts/domain-email-cloud-mail-resend-gmail/step-02-resend-api-key.png)
 
-回到 Cloud Mail 的系统设置，找到 `Resend Token`，把刚才保存的 API Key 填进去并保存。
+2. 打开 Cloud Mail 管理面板 -> **系统设置** -> 找到 **Resend Token**，粘贴该 Key 并保存：
 
 ![在 Cloud Mail 中填写 Resend Token](/assets/posts/domain-email-cloud-mail-resend-gmail/step-03-cloud-mail-resend-token.png)
 
-到这里，Cloud Mail 端的收信和发信能力就基本完成了。可以先在 Cloud Mail 面板里发一封测试邮件，确认外部邮箱能正常收到。
+完成该步骤后，Cloud Mail 便具备了完整的收信与在线发信能力。
 
-## 可选：把邮件转发到 Gmail
+---
 
-如果你希望继续用 Gmail 作为主收件箱，可以把 Cloud Mail 收到的邮件再转发到 Gmail。
+## 3. 接入日常主力 Gmail
 
-先进入 Cloudflare 的邮件路由页面，在 `目标地址` 中添加自己的 Gmail 地址，并到 Gmail 收件箱里点击 Cloudflare 发来的验证链接。
+日常生活中，我们不可能每天频繁登录 Cloud Mail 网页端查信。最舒服的工作流是：**邮件自动汇入日常的个人 Gmail 收件箱，且在 Gmail 点击“回复”时，默认以域名邮箱的身份发送。**
+
+### 第一步：收信自动流转至 Gmail
+
+1. 进入 Cloudflare 域名控制台 -> **Email Routing** -> **Destination addresses（目标地址）**；
+2. 添加你的个人 Gmail 邮箱，在 Gmail 中查收来自 Cloudflare 的验证邮件并点击激活链接：
 
 ![在 Cloudflare 邮件路由中添加 Gmail 目标地址](/assets/posts/domain-email-cloud-mail-resend-gmail/step-04-cloudflare-target-address.png)
 
-然后回到 Cloud Mail，进入系统设置里的 `邮件推送`，在 `第三方邮箱` 中填入刚刚验证过的 Gmail 地址，启用并保存。
+3. 回到 Cloud Mail 面板 -> **系统设置** -> **邮件推送** -> 在 **第三方邮箱** 中填入刚刚验证过的 Gmail 地址并开启：
 
 ![在 Cloud Mail 中启用第三方邮箱推送](/assets/posts/domain-email-cloud-mail-resend-gmail/step-05-cloud-mail-third-party-mailbox.png)
 
-在下方的转发规则里，可以指定哪些域名邮箱需要转发到 Gmail。比如只把 `admin@你的域名` 转发过去，其它临时地址仍然留在 Cloud Mail 面板里。
+如此一来，所有寄往自定义域名的邮件都会推送至 Gmail。
 
-## 可选：让 Gmail 代发域名邮箱
+---
 
-转发解决的是收信。如果还想直接在 Gmail 里选择域名邮箱作为发件地址，需要给 Gmail 添加 Resend 的 SMTP 信息。
+### 第二步：配置 Gmail 代发（Send mail as）
 
-在电脑浏览器打开 Gmail，点击右上角设置，选择 `查看所有设置`。
+利用 Gmail 原生支持的外接 SMTP 功能，结合 Resend 的发信网关完成绑定：
+
+1. 在 PC 浏览器中打开 Gmail -> 点击右上角齿轮 -> **查看所有设置**：
 
 ![打开 Gmail 设置](/assets/posts/domain-email-cloud-mail-resend-gmail/step-06-gmail-settings.png)
 
-进入 `账号和导入`，在 `用这个地址发送邮件` 一栏里点击 `添加其他电子邮件地址`。
+2. 点击 **账号和导入 (Accounts and Import)** 标签页 -> 找到 **用这个地址发送邮件 (Send mail as)** -> 点击 **添加其他电子邮件地址**：
 
 ![Gmail 的账号和导入页面](/assets/posts/domain-email-cloud-mail-resend-gmail/step-07-gmail-send-as.png)
 
-在弹出的窗口里填入你想显示的名称和域名邮箱地址。
+3. 填入发信人对外展示的姓名以及你的域名邮箱地址（如 `admin@starshadow.cc`），勾选“作为别名处理”：
 
 ![在 Gmail 中添加域名邮箱地址](/assets/posts/domain-email-cloud-mail-resend-gmail/step-08-gmail-add-address.png)
 
-下一步会要求填写 SMTP 信息。Resend 的 SMTP 参数如下：
+4. **填写 Resend SMTP 网关参数**（关键步骤）：
 
-- SMTP 服务器：`smtp.resend.com`
-- 端口：`465`
-- 用户名：`resend`
-- 密码：你的 Resend API Key
-- 安全连接：选择 `SSL`
-
-这些信息也可以在 Resend 的 `Settings -> SMTP` 页面找到。
+| 参数项 | 配置值 | 说明 |
+| :--- | :--- | :--- |
+| **SMTP 服务器** | `smtp.resend.com` | Resend 官方发信终端 |
+| **端口** | **`465`** | 必须搭配 SSL 加密 |
+| **用户名** | `resend` | 固定字符，不能写成自己邮箱 |
+| **密码** | `re_xxxxxxxxxxxx` | 之前在 Resend 生成的 API Key |
+| **加密连接** | **SSL** | 465 端口强行要求显式 SSL |
 
 ![Resend 的 SMTP 信息](/assets/posts/domain-email-cloud-mail-resend-gmail/step-09-resend-smtp-settings.png)
 
-把 SMTP 信息填入 Gmail，点击 `添加账号`。
-
 ![在 Gmail 中填写 Resend SMTP 信息](/assets/posts/domain-email-cloud-mail-resend-gmail/step-10-gmail-smtp-settings.png)
 
-Gmail 会向这个域名邮箱发送一封确认邮件。你可以在 Cloud Mail 里复制确认链接，也可以等它转发到 Gmail 后直接点击链接完成验证。
+5. 点击“添加账号”后，Gmail 会向该域名邮箱发送一封包含验证码与确认链接的邮件；
+6. 检查 Cloud Mail 面板或已自动转发过来的 Gmail 收件箱，点击确认链接完成授权：
 
 ![Gmail 发件地址确认成功](/assets/posts/domain-email-cloud-mail-resend-gmail/step-11-gmail-confirmation.png)
 
-验证成功后，回到 Gmail 设置页，按 `F5` 刷新。然后把域名邮箱设置成默认发件地址。这样以后在 Gmail 写邮件时，就可以默认用域名邮箱发出。
+7. 刷新 Gmail 设置页面，将刚刚添加的域名邮箱点击设置为 **默认 (Make default)**：
 
 ![把域名邮箱设为 Gmail 默认发件地址](/assets/posts/domain-email-cloud-mail-resend-gmail/step-12-gmail-default-sender.png)
 
-## 验证一下
+从此，无论是写新邮件还是直接回复，Gmail 都会默认使用该域名邮箱通过 Resend 发送，对外呈现自己的域名身份！
 
-配置完成后，我建议至少做三次测试：
+---
 
-1. 从外部邮箱发信到 `admin@你的域名`，确认 Cloud Mail 能收到。
-2. 如果启用了转发，确认 Gmail 也能收到同一封邮件。
-3. 从 Cloud Mail 或 Gmail 使用域名邮箱发信给外部邮箱，确认对方看到的发件人是你的域名邮箱。
+## 4. 验证（可选）
 
-如果 Gmail 迟迟收不到确认邮件，可以先检查 Cloud Mail 是否已经收到，再检查 Cloudflare 邮件路由的目标地址是否完成验证。
+### 验证步骤
 
-## 常见问题
+1. **入站测试**：使用第三方邮箱（如 Outlook 或 QQ 邮箱）给 `admin@你的域名` 发信，确认 Cloud Mail 存储成功，且个人 Gmail 顺利收到镜像转发；
+2. **出站测试**：在 Gmail 中以该域名邮箱为发件人向外部邮箱发信，确认是否是自己的域名。
 
-### Gmail 添加 SMTP 时提示无法连接
+### 常见踩坑与排障自查
 
-优先确认端口和加密方式是否对应：`465` 选择 `SSL`，`587` 选择 `TLS` 或 `STARTTLS`。如果你按本文使用 `465`，Gmail 里就选 `SSL`。
+#### Q1: Gmail 添加 SMTP 时报错“无法连接到服务器”？
+* **核心诱因**：端口与加密协议不匹配。在邮件协议中，**465 端口属于 Implicit SSL（隐式 SSL）**，连接建立时立刻进行 TLS 握手；而 **587 端口属于 Explicit TLS (STARTTLS)**，先以明文建立连接再升级。如果你填写了 465 端口却勾选了 TLS，或者填了 587 端口勾选了 SSL，都会导致握手超时。
 
-### 发出去的邮件进垃圾箱
+#### Q2: 为什么 Gmail 迟迟收不到确认邮件？
+* **排查逻辑**：
+  1. 先去 Cloudflare 控制台的 Email Routing 日志查看是否有丢件或拒收；
+  2. 再看 Cloud Mail Web 面板是否有记录。若 Cloud Mail 有但 Gmail 没有，说明 Cloud Mail 的第三方推送未配置成功；
+  3. 若两边都没有，检查域名 DNS 的 MX 记录是否被其他解析污染。
 
-先检查 Resend 的域名验证状态，确认 SPF、DKIM、DMARC 记录都已经正确生效。DNS 刚添加后可能需要等一会儿，Cloudflare 一般很快，但不同收件方缓存时间不一样。
+#### Q3: 为什么发出的邮件会被某些外企服务拒收？
+* 域名邮箱在很多反垃圾邮件引擎（如 Spamhaus、Barracuda）中属于高风险特征。建议前期避免批量群发，正常使用并保持规范的 SPF/DKIM/DMARC 签名。
 
-### Gmail 收不到确认邮件
+---
 
-先看 Cloud Mail 面板是否已经收到确认邮件。如果 Cloud Mail 收到了但 Gmail 没有收到，再检查 Cloudflare Email Routing 的目标地址是否完成验证，以及 Cloud Mail 的第三方邮箱推送是否开启。
+## 5. 总结
 
-### 为什么不直接用 Cloudflare 发信？
+借助现代边缘基础设施，搭建一套可用且完全私有的域名邮箱系统。
 
-传统的 Cloudflare Email Routing 主要负责收信和转发，并不提供常规 SMTP 发信服务器。Cloudflare 现在也在推进 Email Service，可以通过 REST API 或 Workers 发信；但如果只是想接入 Gmail 的“用其他地址发送邮件”，Resend 的 SMTP 配置会更简单。
+- **Cloudflare Email Routing** 为我们承接了全球 Anycast 入站清洗；
+- **Cloud Mail** 提供了无需管理主机的轻量控制中心；
+- **Resend** 赋予了我们工业级的可靠发信能力与信誉保障；
+- **Gmail** 则作为日常工作流的无感交互终端。
 
-## 限制和注意事项
-
-Resend 免费档适合个人低频使用。目前免费额度是 100 封/天、3000 封/月、1 个自定义域。如果你使用 Resend 的接收功能，收到的邮件也会计入额度；但这篇方案主要使用 Resend 发信。
-
-传统的 Cloudflare Email Routing 主要负责收信转发，不提供常规 SMTP 发信服务器。Cloudflare Email Service 已经提供 REST API / Workers 发信能力，但本文选择 Resend，是因为它有标准 SMTP，直接接入 Gmail 更省事。
-
-这套方案也不是“完全私密邮箱”。从信任模型上，你仍然要信任 Cloudflare、Cloud Mail 的部署环境，以及 Resend 的发信服务。普通注册、通知、项目测试没有太大问题，但高度敏感的邮件不建议放在这类免费组合方案里。
-
-最后，域名邮箱不一定能通过所有平台的验证。以 OpenAI 这类风控更严格的服务为例，免费域名、低价域名、新注册域名或信誉较弱的自定义域名邮箱，都可能被拒绝。
-
-## 参考资料
-
-- <a href="https://doc.skymail.ink/guide/dashboard.html" target="_blank" rel="noopener noreferrer">Cloud Mail 官方文档</a>
-- <a href="https://resend.com/pricing" target="_blank" rel="noopener noreferrer">Resend 价格与免费额度</a>
-- <a href="https://resend.com/docs/send-with-smtp" target="_blank" rel="noopener noreferrer">Resend SMTP 文档</a>
-- <a href="https://resend.com/docs/dashboard/domains/dmarc" target="_blank" rel="noopener noreferrer">Resend DMARC 文档</a>
-- <a href="https://resend.com/docs/knowledge-base/account-quotas-and-limits" target="_blank" rel="noopener noreferrer">Resend 账号额度说明</a>
-- <a href="https://developers.cloudflare.com/email-routing/" target="_blank" rel="noopener noreferrer">Cloudflare Email Routing 文档</a>
-- <a href="https://developers.cloudflare.com/email-service/api/send-emails/rest-api/" target="_blank" rel="noopener noreferrer">Cloudflare Email Service REST API 文档</a>
-- <a href="https://support.google.com/mail/answer/22370" target="_blank" rel="noopener noreferrer">Gmail：使用其他地址发信</a>

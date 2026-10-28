@@ -12,7 +12,7 @@ export const profileConfig: ProfileConfig = {
 	name: "星影",
 
 	// 个人签名
-	bio: "这里是我的个人博客：写下踩过的坑、学会的东西和一些日常记录 联系邮箱：admin@starshadow.cc",
+	bio: "这里是我的个人博客  联系邮箱：admin@starshadow.cc",
 
 	// 链接配置
 	// 已经预装的图标集：fa7-brands，fa7-regular，fa7-solid，material-symbols，simple-icons

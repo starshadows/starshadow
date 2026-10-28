@@ -1,172 +1,152 @@
 ---
-title: Cloudflare Workers、Tunnel 和 R2 优选：用 SaaS + CNAME 给入口换线路
+title: Cloudflare Workers、Tunnel 与 R2 优选
 published: 2026-05-22
-description: 记录一次用 Cloudflare for SaaS、自定义主机名和 CNAME 优选入口的过程，分别覆盖 Tunnel、Workers/Pages
-  和 R2 三种场景。
+description: 优选ip。
 image: /assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/cover.webp
 tags:
-- Cloudflare
-- Workers
-- Tunnel
-- R2
-- CNAME
-- 优选
-category: 折腾记录
+  - Cloudflare
+  - Workers
+  - Tunnel
+  - R2
+  - CNAME
+  - 优选 IP
+  - Serverless
+category: 网络折腾
 draft: false
 lang: ''
 slug: cloudflare-workers-tunnel-r2-cname-optimization
 date: '2026-05-22'
 ---
 
-这篇继续记录 Cloudflare 优选入口的折腾过程。
+本文将分别针对 Tunnel、Workers 和 R2 这三类云原生资产，落地 CNAME 优选接入方案。
+> [!TIP]
+> 仅推荐电信优选，移动和联通的cloudflare几乎不可用。
 
-前面写普通网站时，核心思路是用 Cloudflare for SaaS 的自定义主机名承接业务域名，再把业务域名通过 `CNAME` 指到一个优选入口。请求先进 Cloudflare，再由 SaaS 配置把流量转回真正的服务。
+## 1. 场景一：Cloudflare Tunnel
 
-这次换几个更常见的 Cloudflare 产品来试：Tunnel、Workers / Pages，以及 R2。它们的共同点是入口本来就在 Cloudflare 上，所以不需要像传统源站那样考虑服务器 IP 暴露；要处理的是“用户访问的域名怎么先进优选入口，再回到真正的 Cloudflare 服务”。
+在内网穿透场景中，本地部署了私有文件管理器（如 File Browser），并通过 Cloudflare Tunnel 实现了无公网 IP 穿透。默认情况下，访客只能通过 Cloudflare 自动生成的 CNAME 接入，在弱网环境下下载速度极度受限。
 
-> [!NOTE]
-> 文中的 `454849.xyz`、`starshadow.cc` 和 `youxuan.cf.090227.xyz` 都是我的测试环境。实际使用时换成自己的域名和优选入口，不要照抄。
+### 核心设计思想：双 Public Hostname 路由解耦
 
-## 原理先说一下
+1. **`file.454849.xyz`（回源锚点）**：在 Tunnel 中绑定，保留官方生成的原生解析记录，作为底层数据通路的内部锚点；
+2. **`file1.454849.xyz`（优选业务域名）**：在 Tunnel 中同样绑定，但**剥离其原生 DNS 解析**，将其改造成指向优选 CNAME 的入口。
 
-这套做法可以拆成三段：
+### 实战配置流程
 
-1. 用户访问一个业务域名，比如 `file1.454849.xyz`。
-2. 这个业务域名不直接走默认解析，而是 `CNAME` 到 `cdn.454849.xyz`，再由 `cdn` 指向优选入口。
-3. Cloudflare 收到请求后，通过自定义主机名、回退源或规则配置，把流量送回真正的 Tunnel、Workers 或 R2。
-
-所以它不是“给 Cloudflare 服务换源站”，而是“给访问入口换线路”。能不能变快，取决于你本地运营商到这个优选入口的质量。电信线路通常更容易看到差异，移动和联通不一定有明显收益。
-
-## Tunnel 优选
-
-Tunnel 场景里，我用的是 File Browser。这里需要两个主机名：
-
-- `file.454849.xyz`：回源用，继续绑定到 Cloudflare Tunnel。
-- `file1.454849.xyz`：用户访问用，准备走优选入口。
-
-在 Zero Trust 的 Tunnel 配置里，先给同一个服务创建两条 Public Hostname 路由。两条路由都指向同一个内网服务，例如 `http://filebrowser:80`。
+#### 1. 在 Zero Trust 中配置两条公共主机名路由
+在 Zero Trust 控制台 -> Networks -> Tunnels -> 对应 Tunnel 的 Public Hostnames 中，分别为 `file` 和 `file1` 创建两条指向同一个本地内网服务（如 `http://filebrowser:80`）的路由规则：
 
 ![Tunnel 里给同一个服务创建 file 和 file1 两条路由](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-01-tunnel-routes.png)
 
-回到 DNS 后，先看原本的 Tunnel 解析。默认情况下，`file` 和 `file1` 都会生成指向 Cloudflare Tunnel 的解析记录。这里保留回源用的 `file`，把准备给用户访问的 `file1` 删除，后面改成走优选入口。
+#### 2. 重整 DNS 解析拓扑
+前往 Cloudflare DNS 控制台：
+- 观察由 Tunnel 自动同步创建的两条解析：保留回源专用的 `file.454849.xyz`；
 
 ![file 域名保留为 Tunnel 默认解析](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-02-tunnel-original-dns.png)
 
-接着把用户访问域名 `file1` 改成 `CNAME`，指到自己的中转记录 `cdn.454849.xyz`。这个记录保持“仅 DNS”。
+- **删除原有的 `file1` 自动解析**，重新将其添加为 `CNAME`，指向中转记录 `cdn.454849.xyz`（仅 DNS，灰云）：
 
 ![file1 CNAME 到 cdn.454849.xyz](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-03-tunnel-file1-cname.png)
 
-然后让 `cdn` 再 `CNAME` 到优选入口。这里我用的是 `youxuan.cf.090227.xyz`，你也可以换成自己的优选入口。
+- 将 `cdn.454849.xyz` CNAME 指向第三方优选入口（如 `youxuan.cf.090227.xyz`）：
 
 ![cdn CNAME 到优选入口](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-04-tunnel-cdn-cname.png)
 
-还需要准备一个回退源记录。单域名方案里，默认回退源在这个场景下并不是真正拿来承接业务流量的，主要是为了让自定义主机名验证和配置能继续走下去。我的测试里用 `origin.454849.xyz` 指向一个可被 Cloudflare 代理的记录。
+#### 3. 编排 SaaS 自定义主机名
+为了让请求顺利通过边缘转发回 Tunnel：
+1. 准备一条回退源 DNS 记录（如 `origin.454849.xyz`，开启橙云）：
 
 ![origin 作为 SaaS 回退源记录](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-05-tunnel-origin-record.png)
 
-然后到 Cloudflare for SaaS 里添加回退源，填入 `origin.454849.xyz`。等状态变成有效以后，再继续添加自定义主机名。
+2. 在 **SSL/TLS -> Custom Hostnames** 中将 `origin.454849.xyz` 设为 **Fallback Origin**：
 
 ![添加 SaaS 回退源](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-06-tunnel-fallback-origin.png)
 
-添加自定义主机名时，主机名填用户访问域名 `file1.454849.xyz`，源服务器填真正的 Tunnel 域名 `file.454849.xyz`。这样外面访问的是 `file1`，回到服务时走的是 `file`。
+3. 点击 **Add Custom Hostname**：
+   - **Custom Hostname**：填写用户访问的业务域名 `file1.454849.xyz`；
+   - **Custom Origin Server（自定义源服务器）**：填写真正的 Tunnel 路由域名 `file.454849.xyz`。
 
 ![自定义主机名使用 file1，自定义源服务器使用 file](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-07-tunnel-custom-hostname.png)
 
-等证书和主机名验证完成后，访问 `file1.454849.xyz` 就能打开 File Browser。
+配置生效后，访问 `file1.454849.xyz`，流量在优选节点完成接入后，瞬间经由专线无缝穿透进内网 File Browser：
 
 ![file1 访问成功](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-08-tunnel-access-ok.png)
 
-我这边用站长工具测了一下。走优选入口时，整体延迟明显好看一些。
+### 测速对比
 
-![Tunnel 走优选入口后的测速](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-09-tunnel-optimized-speedtest.png)
-
-不走优选时，同一类测试会更慢一些。
 
 ![Tunnel 不走优选入口时的测速](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-10-tunnel-direct-speedtest.png)
 
-## Workers / Pages 优选
+![Tunnel 走优选入口后的测速](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-09-tunnel-optimized-speedtest.png)
 
-Workers 的入口本来就在 Cloudflare 上，通常可以通过 Route 或 Custom Domain 绑定域名。Cloudflare 官方文档里也把 Workers 的流量接入分成路由、自定义域名等方式。这里的思路是：先让 Workers 接住一个正常域名，再把用户访问域名通过 `CNAME` 引到优选入口。
+---
 
-我的博客这里已经有 Workers 路由，匹配的是 `blog.starshadow.cc/*`。
+## 2. 场景二：Workers / Pages（边缘算力的 CNAME 透传）
+
+将静态网站或轻量 API 部署在 Cloudflare Workers 时，通常有 **Route（路由匹配）** 与 **Custom Domains（自定义域）** 两种绑定方式。
+
+对于需要接入优选的场景，最纯粹优雅的方式是**结合 Workers Route 与 DNS CNAME**。
+
+### 配置实践
+
+1. **确立 Workers 路由覆盖**：
+   确保你的 Worker（例如驱动博客的静态托管项目）已配置通配路由规则，例如绑定了 `blog.starshadow.cc/*`：
 
 ![Workers 路由匹配 blog.starshadow.cc](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-11-workers-route.png)
 
-DNS 里让 `blog` 指向自己的中转域名 `cdn.starshadow.cc`。
+2. **编排 DNS CNAME 链**：
+   - 将 `blog.starshadow.cc` 配置为 `CNAME`，指向中转记录 `cdn.starshadow.cc`（仅 DNS，灰云）：
 
 ![blog CNAME 到 cdn.starshadow.cc](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-12-workers-blog-cname.png)
 
-再让 `cdn` 指向优选入口。
+   - 将 `cdn.starshadow.cc` 配置为 `CNAME`，指向优选接入点：
 
 ![cdn.starshadow.cc CNAME 到优选入口](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-13-workers-cdn-cname.png)
 
-如果你的站点还在 Cloudflare Pages 上，也可以先评估迁到 Workers Static Assets。Cloudflare 现在已经给了从 Pages 迁到 Workers 的官方说明。迁完以后，入口管理会更接近 Workers，后续做路由和优选也更顺手。
+> [!TIP]
+> **关于 Pages 演进至 Workers**：目前 Cloudflare 官方已经全面推行从 Pages 迁移至 [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/migrate-from-pages/)。迁入 Workers 后，资产调度和路由规则更加统一，对于需要做精细化 CNAME 优选引流的站点而言，配置路径将大幅简化。
 
-> [!NOTE]
-> Workers / Pages 这段不要只看 DNS 是否保存成功。最终要确认的是：访问业务域名时，确实命中了对应 Worker 或静态站点，而不是被中转域名、SaaS 配置或旧 DNS 记录带偏。
+---
 
-## R2 优选
+## 3. 场景三：R2 对象存储（利用 Cloud Connector）
 
-R2 的场景稍微绕一点。官方支持给公开 Bucket 绑定自定义域名，所以第一步还是先让 R2 有一个正常可访问的自定义域名。
+传统上，如果要给 R2 存储桶接入外部优选 CNAME，很多开发者不得不专门编写一个反代 Worker（如在 Worker 中读取 `env.MY_BUCKET.get(key)`）来转发请求。这种做法不仅增加了代码维护负担，还会额外消耗 Workers 的请求配额与执行时长。
 
-我这里先给 R2 绑定了 `r2.454849.xyz`。
+**新一代原生解决方案：利用 Cloudflare Cloud Connector。**
+
+### 配置实施
+
+#### 1. 为 R2 公开存储桶绑定基准自定义域名
+进入 R2 控制台 -> 点击对应存储桶 -> **Settings** -> **Public access** -> 添加 Custom Domain（例如 `r2.454849.xyz`）：
 
 ![R2 绑定自定义域名](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-14-r2-custom-domain.png)
 
-然后到规则里使用 Cloud Connector，选择 Cloudflare R2 作为目标。
+#### 2. 配置 Cloud Connector 路由转换规则
+进入域名控制台 -> **Rules** -> **Cloud Connector** -> 点击创建规则：
+- **Target**：选择 **Cloudflare R2**：
 
 ![规则里选择 Cloudflare R2](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-15-r2-cloud-connector.png)
 
-选择要转发到的 R2 存储桶，并选择刚才绑定过的 R2 自定义域名。
+- **Bucket 配置**：选中目标存储桶，并关联前面绑定的自定义域名 `r2.454849.xyz`：
 
 ![选择 R2 存储桶和自定义域名](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-16-r2-connector-bucket.png)
 
-接着配置匹配条件。我的测试里用 `youxuanr2.454849.xyz` 作为准备走优选的入口域名。
+- **匹配条件**：配置自定义主机名表达式，指定当请求 Host 为拟优选域名（例如 `youxuanr2.454849.xyz`）时触发直通转发：
 
 ![配置 Cloud Connector 的主机名匹配规则](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-17-r2-connector-rule.png)
 
-DNS 里再加两条 `CNAME`：
-
-- `youxuanr2.454849.xyz` 指向 `cdn.454849.xyz`。
-- `cdn.454849.xyz` 指向优选入口。
+#### 3. 设置 CNAME 优选记录
+在 DNS 控制台中，将 `youxuanr2.454849.xyz` CNAME 至中转记录 `cdn.454849.xyz`，再由中转记录指向优选入口：
 
 ![youxuanr2 CNAME 到 cdn](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-18-r2-youxuan-cname.png)
 
 ![cdn CNAME 到优选入口](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-19-r2-cdn-cname.png)
 
-如果直接访问根路径，可能会看到 R2 的 `Object not found`，这不一定代表优选失败。R2 访问的是对象路径，根路径没有对象时返回 404 很正常。
+#### 4. 结果验证注意事项
+直接访问 R2 存储桶根路径（`https://youxuanr2.454849.xyz/`）时，浏览器返回 `404 Object not found` 是**完全符合预期的正常现象**，因为 S3 存储桶根路径下默认不存在索引文件：
 
 ![R2 根路径没有对象时返回 404](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-20-r2-object-404.png)
 
-真正验证时，要访问一个确实存在的对象，或者用测速工具看域名解析和访问延迟。我这里 `youxuanr2.454849.xyz` 的测试结果也能正常跑出来。
+真正验证时，应请求存储桶内的具体文件路径（如 `/avatar.png`）或通过测速工具验证，此时可以看到由优选节点带来的优秀网络表现：
 
 ![R2 优选入口测速结果](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-21-r2-optimized-speedtest.png)
-
-## 验证清单
-
-做完以后我会按这个顺序检查：
-
-1. DNS 里用户访问域名和中转域名都是 `CNAME`，并且保持“仅 DNS”。
-2. SaaS 回退源处于有效状态，自定义主机名证书也验证完成。
-3. 访问用户域名时，页面能打开到真正的 Tunnel、Worker 或 R2 对象。
-4. 访问回源域名时，仍然能确认真实服务本身正常。
-5. 用不同线路测一次，不要只看单个节点的延迟。
-
-DNS 刚改完时可能会有缓存。Cloudflare 后台显示保存成功，不代表外部解析已经完全同步；证书验证也可能需要等一会儿。
-
-## 限制和注意事项
-
-这套方案依赖 Cloudflare 的 SaaS、自定义主机名、规则和 DNS 行为。Cloudflare 后台 UI 会变，功能入口也可能调整，所以具体按钮以当前控制台为准。
-
-另外，优选入口本身是第三方能力时，要自己判断稳定性和可信度。它能改善某些线路的访问质量，但也多了一层依赖。个人项目拿来折腾没问题，重要业务最好准备回退方案。
-
-最后，测试结果不要过度外推。我的环境里电信收益更明显，移动不一定救得回来，联通可能本来就够稳。对自己有用才算数。
-
-## 参考资料
-
-- <a href="https://developers.cloudflare.com/tunnel/routing/" target="_blank" rel="noopener noreferrer">Cloudflare Tunnel routing</a>
-- <a href="https://developers.cloudflare.com/workers/configuration/routing/" target="_blank" rel="noopener noreferrer">Workers routes and domains</a>
-- <a href="https://developers.cloudflare.com/workers/configuration/routing/routes/" target="_blank" rel="noopener noreferrer">Workers routes</a>
-- <a href="https://developers.cloudflare.com/r2/data-access/public-buckets/" target="_blank" rel="noopener noreferrer">R2 public buckets and custom domains</a>
-- <a href="https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/start/getting-started/" target="_blank" rel="noopener noreferrer">Cloudflare for SaaS getting started</a>
-- <a href="https://developers.cloudflare.com/workers/static-assets/migrate-from-pages/" target="_blank" rel="noopener noreferrer">Migrate from Pages to Workers</a>
