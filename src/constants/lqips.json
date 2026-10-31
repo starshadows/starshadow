@@ -152,5 +152,17 @@
   "public:assets/posts/ai-vps-ip-residential-isp-comparison/evoxt-kuala-lumpur-select.png": "a4a8baffffffffffff",
   "public:assets/posts/ai-vps-ip-residential-isp-comparison/evoxt-dashboard.png": "a9adbffdfbfeffffff",
   "public:assets/posts/mihomo-tun-wlan-forwarding-conflict/cover.png": "9e6b9e694a607b5d70",
-  "public:assets/posts/ai-vps-ip-residential-isp-comparison/cover.png": "27485c5c8194577d91"
+  "public:assets/posts/ai-vps-ip-residential-isp-comparison/cover.png": "27485c5c8194577d91",
+  "public:assets/posts/cloudflare-single-domain-saas-cname/ping-unicom-before.png": "f5f3f2f3e4def1e4de",
+  "public:assets/posts/cloudflare-single-domain-saas-cname/ping-unicom-after.png": "f5f4f3f0edeaf1e8e5",
+  "public:assets/posts/cloudflare-single-domain-saas-cname/ping-telecom-before.png": "f3f5f3e4e7dfe7e9e2",
+  "public:assets/posts/cloudflare-single-domain-saas-cname/ping-telecom-after.png": "f3f4f4f2f3f1f3f4f2",
+  "public:assets/posts/cloudflare-single-domain-saas-cname/ping-mobile-before.png": "edf1f0e8ece5e7ebe3",
+  "public:assets/posts/cloudflare-single-domain-saas-cname/ping-mobile-after.png": "f2f5f6f3f2eff3f2ef",
+  "public:assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-unicom-before.png": "f5f3f2f3e4def1e4de",
+  "public:assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-unicom-after.png": "f5f4f3f0edeaf1e8e5",
+  "public:assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-telecom-before.png": "f3f5f3e4e7dfe7e9e2",
+  "public:assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-telecom-after.png": "f3f4f4f2f3f1f3f4f2",
+  "public:assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-mobile-before.png": "edf1f0e8ece5e7ebe3",
+  "public:assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-mobile-after.png": "f2f5f6f3f2eff3f2ef"
 }

@@ -171,5 +171,30 @@ HTTP 421 错误属于 HTTP 协议规范中的“请求定向错误”。其根�
 
 ![双域名方案访问正常](/assets/posts/cloudflare-single-domain-saas-cname/double-domain-access-ok.png)
 
+---
+
+## 3. 三网优选效果实测对比
+
+### ① 中国电信
+
+
+![电信未优选](/assets/posts/cloudflare-single-domain-saas-cname/ping-telecom-before.png)
+
+![电信优选](/assets/posts/cloudflare-single-domain-saas-cname/ping-telecom-after.png)
+
+### ② 中国联通
+
+
+![联通未优选](/assets/posts/cloudflare-single-domain-saas-cname/ping-unicom-before.png)
+
+![联通优选](/assets/posts/cloudflare-single-domain-saas-cname/ping-unicom-after.png)
+
+### ③ 中国移动
+
+![移动未优选](/assets/posts/cloudflare-single-domain-saas-cname/ping-mobile-before.png)
+
+![移动优选](/assets/posts/cloudflare-single-domain-saas-cname/ping-mobile-after.png)
+
+
 
 

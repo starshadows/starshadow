@@ -24,12 +24,8 @@ date: '2026-05-22'
 
 ## 1. 场景一：Cloudflare Tunnel
 
-在内网穿透场景中，本地部署了私有文件管理器（如 File Browser），并通过 Cloudflare Tunnel 实现了无公网 IP 穿透。默认情况下，访客只能通过 Cloudflare 自动生成的 CNAME 接入，在弱网环境下下载速度极度受限。
-
-### 核心设计思想：双 Public Hostname 路由解耦
-
-1. **`file.454849.xyz`（回源锚点）**：在 Tunnel 中绑定，保留官方生成的原生解析记录，作为底层数据通路的内部锚点；
-2. **`file1.454849.xyz`（优选业务域名）**：在 Tunnel 中同样绑定，但**剥离其原生 DNS 解析**，将其改造成指向优选 CNAME 的入口。
+1. **`file.454849.xyz`（回源锚点）**：在 Tunnel 中绑定，保留官方生成的原生解析记录；
+2. **`file1.454849.xyz`（优选业务域名）**：在 Tunnel 中同样绑定，但**删除其原生 DNS 解析**，将其改成指向优选 CNAME 的入口。
 
 ### 实战配置流程
 
@@ -38,7 +34,7 @@ date: '2026-05-22'
 
 ![Tunnel 里给同一个服务创建 file 和 file1 两条路由](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-01-tunnel-routes.png)
 
-#### 2. 重整 DNS 解析拓扑
+#### 2. 重整 DNS 解析
 前往 Cloudflare DNS 控制台：
 - 观察由 Tunnel 自动同步创建的两条解析：保留回源专用的 `file.454849.xyz`；
 
@@ -104,15 +100,14 @@ date: '2026-05-22'
 ![cdn.starshadow.cc CNAME 到优选入口](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-13-workers-cdn-cname.png)
 
 > [!TIP]
-> **关于 Pages 演进至 Workers**：目前 Cloudflare 官方已经全面推行从 Pages 迁移至 [Workers Static Assets](https://developers.cloudflare.com/workers/static-assets/migrate-from-pages/)。迁入 Workers 后，资产调度和路由规则更加统一，对于需要做精细化 CNAME 优选引流的站点而言，配置路径将大幅简化。
+> **Pages 需要转换成 Workers**
 
 ---
 
 ## 3. 场景三：R2 对象存储（利用 Cloud Connector）
 
-传统上，如果要给 R2 存储桶接入外部优选 CNAME，很多开发者不得不专门编写一个反代 Worker（如在 Worker 中读取 `env.MY_BUCKET.get(key)`）来转发请求。这种做法不仅增加了代码维护负担，还会额外消耗 Workers 的请求配额与执行时长。
 
-**新一代原生解决方案：利用 Cloudflare Cloud Connector。**
+**利用 Cloudflare Cloud Connector。**
 
 ### 配置实施
 
@@ -150,3 +145,19 @@ date: '2026-05-22'
 真正验证时，应请求存储桶内的具体文件路径（如 `/avatar.png`）或通过测速工具验证，此时可以看到由优选节点带来的优秀网络表现：
 
 ![R2 优选入口测速结果](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/step-21-r2-optimized-speedtest.png)
+
+---
+
+## 4. 三网优选网络质量实测对比
+
+
+![电信未优选](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-telecom-before.png)
+
+![电信优选](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-telecom-after.png)
+
+### 联通与移动（改善有限）
+
+![联通优选](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-unicom-after.png)
+
+![移动优选](/assets/posts/cloudflare-workers-tunnel-r2-cname-optimization/ping-mobile-after.png)
+
